@@ -8,8 +8,9 @@ tjbal.core <- function(
     data, ## data in wide form
     Y,
     X,
-    Y.match.time = NULL,
+    Y.match.time = NULL, 
     Y.match.npre = NULL, # fix the number of pre-periods for balancing when T0s are different
+    # number of pre-treatment periods to match
     Ttot,
     T0,
     id.tr,
@@ -21,8 +22,8 @@ tjbal.core <- function(
     ) { 
 
 
-    TT <- length(Ttot)
-    Ntr <- length(id.tr)
+    TT <- length(Ttot) #total time
+    Ntr <- length(id.tr) 
     Nco <- length(id.co)
     N <- Ntr + Nco 
     Tpre <- Ttot[1:T0]
@@ -30,14 +31,14 @@ tjbal.core <- function(
 
     if (is.null(Y.match.npre)==FALSE) {
         if (Y.match.npre == 0) {
-            Y.match.time <- NULL
+            Y.match.time <- NULL #match.time refers to the time list to match
         } else {
             Y.match.time <- Ttot[max(1,(T0-Y.match.npre+1)):T0]
         }            
     } else {
         if (is.null(Y.match.time)==FALSE) {
             Y.match.time <- intersect(Tpre, Y.match.time)                
-        } else {
+        } else {# if both null, match all pre
             Y.match.time <- Tpre                
         }
     } 
@@ -45,11 +46,12 @@ tjbal.core <- function(
 
 
     ## remove other treated (in case of multiple timing) 
+    ##add together
     data <- data[c(id.tr, id.co),]
     id.tr <- 1:Ntr
     id.co <- (Ntr + 1): N           
 
-
+    ##regularize by extracting mean, if demean
     if (demean == TRUE) { 
         Y.dm.var <- paste0(Y,".dm",Ttot)
         Ypre.mean <- apply(data[, paste0(Y, Tpre), drop = FALSE], 1, mean) # N*1
@@ -114,7 +116,7 @@ tjbal.core <- function(
             tmp <- capture.output(
                 kbal.out <- suppressWarnings(kbal(allx = data[,matchvar,drop = FALSE],
                     treatment = data$treat, b=b, 
-                    linkernel = FALSE, fullSVD = TRUE,
+                    linkernel = FALSE, fullSVD = TRUE,constraint=TRUE,
                     printprogress = FALSE, sampledinpop = FALSE))
                 , file = NULL)
         } # end of kernel balancing

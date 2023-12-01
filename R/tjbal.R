@@ -32,9 +32,12 @@ tjbal <- function(
 ####################################
 ## Main Functions
 ####################################
+#Formula is just a wrapper of default method
+#that extract variables from the formula
+#it is equivalent to manually input Y,D and X and the data
 
 tjbal.formula <- function(
-    formula = NULL,
+    formula = NULL, 
     data, # data in long form
     X.avg.time = NULL, # take averages of covariates in a given time period
     index, # unit and time
@@ -42,7 +45,7 @@ tjbal.formula <- function(
     Y.match.time = NULL,
     Y.match.npre = NULL, # fix the number of pre-periods for balancing when T0s are different
     demean = TRUE, # take out pre-treatment unit mean
-    estimator = "meanfirst",  # mean, meanfirst, kernel
+    estimator = "mean",  # mean, meanfirst, kernel
     sigma=NULL,
     print.baltable = TRUE, # print out table table
     vce = "jackknife", ## uncertainty via bootstrap
@@ -55,15 +58,16 @@ tjbal.formula <- function(
 
     ## parsing
     varnames <- all.vars(formula)
-    Yname <- varnames[1]
-    Dname <- varnames[2]
+    Yname <- varnames[1] #outcome
+    Dname <- varnames[2] #treatment
+    
     if (length(varnames) > 2) {
-        Xname <- varnames[3:length(varnames)]
+        Xname <- varnames[3:length(varnames)] #covariates, optional
     } else {
         Xname <- NULL
     }
 
-    namesData <- colnames(data)
+    namesData <- colnames(data) #check variable names are actually in the data
     for (i in 1:length(varnames)) {
         if(!varnames[i] %in% namesData) {
             stop(paste0("variable \"", varnames[i],"\" is not in the dataset."))
@@ -115,23 +119,25 @@ tjbal.default <- function(
     ## Checking Parameters
     ##-------------------------------##  
 
-    if (is.null(seed)==FALSE) {set.seed(seed)}
+    if (is.null(seed)==FALSE) {set.seed(seed)}# set seed for reproduce results
 
     
-    if (class(data)[1] == "tbl_df") {
+    if (class(data)[1] == "tbl_df") {#transform tibble to data frame for compatible
         #warning("Transforming a tibble into a data frame.")
         data <- as.data.frame(data)
     }
-    if (is.data.frame(data)==FALSE) {
+    if (is.data.frame(data)==FALSE) {# not a data frame, wrong type of data
         stop("Not a data frame")
     }
-    data <- droplevels(data)
+    data <- droplevels(data)#extra metadata of all column values, compare to pandas
+    
 
-    ## index
+    ## ensure exactly two indexes and they exist as data columns
     if (length(index) != 2 | sum(index %in% colnames(data)) != 2) {
         stop("\"index\" option misspecified. Try, for example, index = c(\"unit.id\", \"time\").")
     }   
-
+    
+    #Initialization strategy, jackknife by default
     if (vce == "boot") {vce <- "bootstrap"}
     if (vce == "jack") {vce <- "jackknife"}
     if (vce == "fixed") {vce <- "fixed.weights"}
@@ -140,6 +146,7 @@ tjbal.default <- function(
 
     if (is.null(Y.match.time)==FALSE) {
         if (Y.match.time[1] == "none") {
+          # if match.time[1] is None then no match? why?, what is this exactly?
             Y.match.pre <- 0
             Y.match.time <- NULL
         }         
@@ -151,7 +158,7 @@ tjbal.default <- function(
         }
     }
 
-    if (is.null(nsims)==TRUE) {
+    if (is.null(nsims)==TRUE) {#nsims by default 200
         nsims <- 200
     }
 
@@ -164,14 +171,15 @@ tjbal.default <- function(
     Yname <- Y
     Dname <- D
     Xname <- X
-
+   
+    # index is (id, time)
     id <- index[1];
     time <- index[2];
-    TT <- length(unique(data[,time]))
-    N <- length(unique(data[,id]))
-    p <- length(Xname)
+    TT <- length(unique(data[,time])) #total time
+    N <- length(unique(data[,id])) #total number of subjects, ids, items, whatever you name it
+    p <- length(Xname)#total number of time invariant variables
     
-    ## check balanced panel
+    ## check balanced panel, if id and time have same length
     if (var(table(data[,id])) + var(table(data[, time])) > 0) {
         stop("The panel is not balanced.")
     }
@@ -181,7 +189,7 @@ tjbal.default <- function(
         stop("The time indicator must be numeric.")
     }
     
-    ## check missingness
+    ## check missing value in Y,D, id,time, why not check X
     if (sum(is.na(data[, Yname])) > 0) {
         stop(paste("Missing values in variable \"", Yname,"\".", sep = ""))
     }
@@ -194,38 +202,45 @@ tjbal.default <- function(
     if (sum(is.na(data[, time])) > 0) {
         stop(paste("Missing values in variable \"", time,"\".", sep = ""))
     } 
-
+    # X is time invariant, no need to check them here
  
     ## sort data
-    data <- data[order(data[,id], data[,time]), ]
+    data <- data[order(data[,id], data[,time]), ]#sort by id first and then time
 
     ## time and unit
-    Ttot <- sort(unique(data[,time]))
-    units <- unique(data[,id])
+    Ttot <- sort(unique(data[,time]))#Ttot is just sorted unique times
+    units <- unique(data[,id])#units hold unique ids
 
     ## check balanced panel
-    if (nrow(data) != TT*N) {
+    if (nrow(data) != TT*N) {#nrows should match Total time * total id
         stop("Data are not balanced or \"index\" does not uniquely identity an observation.")
     }
     
     ##treatment indicator
+    #remember how the data was sorted firstly by time and secondly by ID!
+    #save the same matrix to D.sav and D, because D calculate T0 later
     D.sav <- D<- matrix(data[,Dname],TT,N)
 
     ## once treated, always treated
     D <- apply(D, 2, function(vec){cumsum(vec)})
-    T0 <- TT - D[TT,] # a vector, number of pre-treatment periods for each unit
+    # 2 refers to column, so for all column in D
+    # the value becomes cumsum, note it updates with previous value, so 0,1,0,0 become ,0111
+    # this does not make sense, is D already 0111 instead of 0100 in input?
+    #already once treated always treated in input, wasted time here...
+    
+    T0 <- TT - D[TT,] #a vector, number of pre-treatment periods for each unit
 
     ## drop units with too few pre-treatment periods
-    id.drop <- which(T0 <= trim.npre)
+    id.drop <- which(T0 <= trim.npre)#this is the threshold for periods to drop
     N.drop <- length(id.drop)
-    D <- ifelse(D > 0, 1, 0)
-    if (sum(abs(D-D.sav))!=0) {
+    D <- ifelse(D > 0, 1, 0) # convert 0123 back to 0111
+    if (sum(abs(D-D.sav))!=0) { # how would these not equal, did not check ?
         cat("\nTreatment status changed to \"treated\" after a unit has even been treated; in other words, no switch on-and-off is allowed.\n")
     }
-    if (N.drop>0) {
+    if (N.drop>0) {#drop 
         N <- N - N.drop
-        D <- D[,-id.drop, drop = FALSE]
-        data <- data[rep(T0,each = TT)>trim.npre,]
+        D <- D[,-id.drop, drop = FALSE] #drop from D
+        data <- data[rep(T0,each = TT)>trim.npre,] #drop from data
         units <- units[-id.drop]
         T0 <- T0[-id.drop]
         cat(paste0("\nDrop ",length(id.drop)," units with ",trim.npre," or fewer pre-treatment periods.\n"))
@@ -234,8 +249,9 @@ tjbal.default <- function(
 
     ## treatment
     treat <-ifelse(D[TT,]==1, 1, 0)     # cross-sectional: treated unit
-    id.tr <- which(treat == 1)
-    id.co <- which(treat == 0)
+    # treated during any point
+    id.tr <- which(treat == 1) # treated
+    id.co <- which(treat == 0) #control
     Ntr <- length(id.tr)
     Nco <- length(id.co) 
     if (Ntr == 0) {
@@ -248,16 +264,16 @@ tjbal.default <- function(
     ## check the number of treated units
     if (Ntr <= 5) {
         cat("Too few treated unit(s). Uncertainty estimates not provided.\n")
-        vce <- "none"
+        vce <- "none" #too few ntr, no init strategy
     }    
 
     ## treatment timing
-    T0.tr <- T0[id.tr]
+    T0.tr <- T0[id.tr] #subset of t0 for treated
     T0.min<-min(T0.tr)
 
-    ## same timing: 
+    ## determine if treated at the same time: 
     if (Ntr==1) {
-        sameT0 <- TRUE
+        sameT0 <- TRUE 
     } else {
         if (var(T0.tr)==0) {
             sameT0 <- TRUE        
@@ -266,45 +282,51 @@ tjbal.default <- function(
         }
     }    
     if (sameT0==TRUE) {
-        Tpre <- Ttot[1:unique(T0.tr)]        
+        Tpre <- Ttot[1:unique(T0.tr)]#pre-treatment period for all elements        
     }
 
     ## outcome variable
-    outcome <- matrix(data[,Yname],N, TT, byrow = TRUE)
+    outcome <- matrix(data[,Yname],N, TT, byrow = TRUE) #construct outcome matrix from Y column
     Y.var <- paste0(Yname, Ttot) ## outcome variable names (wide form)
+    ##concat as name + time
     colnames(outcome) <- Y.var ## including both pre and post
+    ##assign concatted names to outcome matrix
+    ##row= unit, column= Yname+time, value= Y
 
     ## covariates (allow missing, but non-missing values have to be same for each unit)
     if (class(data[,id])!="factor") { ## to avoid an error with ddply
-        data[,id] <- as.factor(data[,id])        
+        data[,id] <- as.factor(data[,id]) ##compativle with ddply      
     }
-    if (p > 0) {
-        if (is.null(X.avg.time)==FALSE) {
+    ## by avg, it means each unit, each cov, mean in given period
+    if (p > 0) {# if there are covariates
+        if (is.null(X.avg.time)==FALSE) {# if there is X.avg.time
             if (sameT0 == FALSE) {
                 stop("\"X.avg.time\" is only allowed when the treatment starts at the same time.")
             }
             if (is.list(X.avg.time)==TRUE) {
-                if (length(X.avg.time)!=p) {
+                if (length(X.avg.time)!=p) {#p has to match X.avg.tine
                     stop("Length of \"X.avg.time\" (as a list) must equal the number of covariates.")
                 }
-                Xvar <- matrix(NA, N, p)
-                colnames(Xvar) <- Xname
-                for (i in 1:p) {
+                Xvar <- matrix(NA, N, p)# p covariates, N units, empty matrix
+                colnames(Xvar) <- Xname # assign covariate names
+                for (i in 1:p) {#for all p, compute its average in given period of time
                     this.period <- X.avg.time[[i]]
                     if (sum(1 - this.period%in%Tpre)>0) {
                         stop("Elements in \"X.avg.time\" must be in the pre-treatment period.")
                     }
-                    selected.row <- which(data[,time] %in% this.period)
+                    selected.row <- which(data[,time] %in% this.period)#extract rows in the period
                     X.pre <- data[selected.row, c(id,Xname[i]),drop = FALSE] 
+                    #subset of tata for this id and covariate and also time (thru selected.row)
                     covar.tmp <- ddply(X.pre, .(unit = X.pre[, id]), 
-                        numcolwise(mean), na.rm = TRUE)[,-1]
+                        numcolwise(mean), na.rm = TRUE)[,-1]#mean of cov for each item
                     if (length(covar.tmp)!=N) {
                         stop(paste0("Missing values in ",Xname[i]," in specified years."))
                     } else{
-                        Xvar[,i] <- covar.tmp
+                        Xvar[,i] <- covar.tmp #return the result
                     }
                 }
             } else { # not a list, a set of numbers only
+              ##essentially does the same thing
                 if (sum(1 - X.avg.time%in%Tpre)>0) {
                     stop("\"X.avg.time\" must be in the pre-treatment period.")
                 }
@@ -346,7 +368,7 @@ tjbal.default <- function(
 
     
     
-    ## prepare "wide" form data
+    ## prepare "wide" form data, each unit is it's own row
     if (p>0) {
         data.wide <- cbind.data.frame(id = 1:N, unit = units, treat = treat, T0 = T0, outcome, Xvar)
     } else {
@@ -358,7 +380,7 @@ tjbal.default <- function(
     ## balancing
     #######################
 
-    if (sameT0 == TRUE) {
+    if (sameT0 == TRUE) {#sameT0
         bal.out <- tjbal.single(data = data.wide, Y = Yname, D = "treat", X = Xname,
             Y.match.time = Y.match.time, Y.match.npre = Y.match.npre, 
             Ttot = Ttot, unit = "id", 
@@ -366,7 +388,7 @@ tjbal.default <- function(
             print.baltable = print.baltable,
             vce = vce, conf.lvl = conf.lvl,
             nsims = nsims, parallel = parallel, cores = cores)         
-    } else { 
+    } else { #multiple treatment start times
         bal.out <- tjbal.multi(data = data.wide, Y = Yname, D = "treat", X = Xname,
             Y.match.time = Y.match.time, Y.match.npre = Y.match.npre, 
             Ttot = Ttot, unit = "id", 
