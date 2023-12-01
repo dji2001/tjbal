@@ -116,7 +116,7 @@ tjbal.core <- function(
             tmp <- capture.output(
                 kbal.out <- suppressWarnings(kbal(allx = data[,matchvar,drop = FALSE],
                     treatment = data$treat, b=b, 
-                    linkernel = FALSE, fullSVD = TRUE,
+                    linkernel = FALSE, fullSVD = TRUE,constraint=TRUE,
                     printprogress = FALSE, sampledinpop = FALSE))
                 , file = NULL)
         } # end of kernel balancing

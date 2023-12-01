@@ -45,7 +45,7 @@ tjbal.formula <- function(
     Y.match.time = NULL,
     Y.match.npre = NULL, # fix the number of pre-periods for balancing when T0s are different
     demean = TRUE, # take out pre-treatment unit mean
-    estimator = "meanfirst",  # mean, meanfirst, kernel
+    estimator = "mean",  # mean, meanfirst, kernel
     sigma=NULL,
     print.baltable = TRUE, # print out table table
     vce = "jackknife", ## uncertainty via bootstrap
